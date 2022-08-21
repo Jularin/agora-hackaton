@@ -1,0 +1,82 @@
+version: "3"
+
+services:
+  postgres-db:
+    image: postgres:13-alpine
+    volumes:
+      - ./db:/var/lib/postgresql/data
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    networks:
+      - djangonetwork
+
+  app:
+    build:
+      context: .
+      dockerfile: deploy/python/Dockerfile
+    depends_on:
+      - rabbitmq
+      - postgres-db
+    command: bash -c "python3 src/manage.py migrate && python3 src/manage.py runserver 0.0.0.0:8000"
+    volumes:
+      - static:/app/static
+    env_file:
+      - .env
+    environment: &env
+      DJANGO_SECRET_KEY: $DJANGO_SECRET_KEY
+      DB_NAME: $DB_NAME
+      DB_USER: $DB_USER
+      DB_PASSWORD: $DB_PASSWORD
+      DB_HOST: postgres-db
+      DB_PORT: $DB_PORT
+      RABBITMQ_USER: guest
+      RABBITMQ_PASS: guest
+      AMQP_URL: $AMQP_URL
+      QUEUE_NAME: $QUEUE_NAME
+#     ports:
+#       - "8000:8000"
+    networks:
+      - djangonetwork
+    restart: always
+
+  receiver:
+    build:
+      context: .
+      dockerfile: deploy/python/Dockerfile
+
+    command: "python3 src/manage.py start_receiver"
+
+    environment:
+      <<: *env
+    networks:
+      - djangonetwork
+    depends_on:
+      - rabbitmq
+  rabbitmq:
+    hostname: rabbitmq
+    image: rabbitmq:management-alpine
+    ports:
+      - 5672:5672
+      - 15672:15672
+    volumes:
+      - rabbitmq_data:/data
+    env_file:
+      - .env
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    networks:
+      - djangonetwork
+    restart: always
+
+volumes:
+  static:
+  rabbitmq_data:
+
+networks:
+    djangonetwork:
+        driver: bridge
